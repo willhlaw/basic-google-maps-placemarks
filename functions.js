@@ -11,7 +11,7 @@
  */
 function bgmp_wrapper( $ )
 {
-	// @todo - figure out if wrapper bad for memory consumption (https://developer.mozilla.org/en/JavaScript/Reference/Functions_and_function_scope#Efficiency_considerations)
+  // @todo - figure out if wrapper bad for memory consumption (https://developer.mozilla.org/en/JavaScript/Reference/Functions_and_function_scope#Efficiency_considerations)
 		// ask on stackoverflow
 	
 	$.bgmp = 
@@ -30,6 +30,9 @@ function bgmp_wrapper( $ )
 			$.bgmp.markerClusterer		= undefined;
 			$.bgmp.markers				= {};
 			$.bgmp.infoWindowContent	= {};
+			$.bgmp.directionsService = undefined;
+			$.bgmp.directionsDisplay = undefined;
+			$.bgmp.directionsResults = (document.getElementById( $.bgmp.prefix + 'map-directions') === null) ? $( '#' + $.bgmp.prefix + 'map-canvas' ).after('<div id="map-directions">  </div>').next().get(0) : document.getElementById( 'map-directions');
 			
 			// Initialize single info window to reuse for each placemark
 			$.bgmp.infoWindow = new google.maps.InfoWindow( {
@@ -85,6 +88,7 @@ function bgmp_wrapper( $ )
 			// Override default width/heights from settings
 			$( '#' + $.bgmp.prefix + 'map-canvas' ).css( 'width', bgmpData.options.mapWidth );		// @todo use $.bgmp.canvas intead of hardcoding it?
 			$( '#' + $.bgmp.prefix + 'map-canvas' ).css( 'height', bgmpData.options.mapHeight );
+			//$( '#' + $.bgmp.prefix + 'map-canvas' ).after('<div id="map-directions"> Directions </div>');
 			// @todo this prevents users from using their own stylesheet?
 			
 			
@@ -92,10 +96,23 @@ function bgmp_wrapper( $ )
 			try
 			{
 				$.bgmp.map = new google.maps.Map( $.bgmp.canvas, mapOptions );
+				// Initialize the directions display
+				$.bgmp.directionsDisplay = new google.maps.DirectionsRenderer({suppressMarkers: true, preserveViewport: false, draggable: true});
+				$.bgmp.directionsDisplay.setMap($.bgmp.map);
+				$.bgmp.directionsDisplay.setPanel($.bgmp.directionsResults);
+				google.maps.event.addListener($.bgmp.directionsDisplay, 'directions_changed', function() {
+					//un-overlap the A and B icon and the start and destination text (which are class .adp-text.
+					setTimeout(function() {
+						$(".adp-text").css('width', 0);
+					}, 1000);
+				});
+
+				// Initialize the directions service
+				$.bgmp.directionsService = new google.maps.DirectionsService();
 			}
 			catch( e )
 			{
-				$( $.bgmp.canvas ).html( $.bgmp.name + " error: couln't build map." );
+				$( $.bgmp.canvas ).html( $.bgmp.name + " error: couldn't build map." );
 				if( window.console )
 					console.log( $.bgmp.prefix + 'buildMap: '+ e );
 					
@@ -160,7 +177,7 @@ function bgmp_wrapper( $ )
 						bgmpData.markers[ m ][ 'latitude' ],
 						bgmpData.markers[ m ][ 'longitude' ],
 						bgmpData.markers[ m ][ 'details' ],
-						bgmpData.markers[ m ][ 'icon' ],
+						bgmpData.markers[ m ][ 'icon' ],	
 						parseInt( bgmpData.markers[ m ][ 'zIndex' ] )
 					);
 				}
@@ -229,9 +246,9 @@ function bgmp_wrapper( $ )
 				$.bgmp.markers[ id ] = marker;
 				$.bgmp.infoWindowContent[ id ] = infoWindowContent;
 				
-				google.maps.event.addListener( marker, 'click', function() 
+				google.maps.event.addListener( marker, 'click', function(e) 
 				{
-					$.bgmp.openInfoWindow( map, marker, infoWindowContent );
+					$.bgmp.openInfoWindow( map, marker, infoWindowContent, e );
 				} );
 				
 				return true;
@@ -243,6 +260,28 @@ function bgmp_wrapper( $ )
 					console.log( $.bgmp.prefix + 'createMarker: '+ e );
 			}
 		},
+
+		/**
+		 * Get the directions
+		 * @author Will Lawrence <will.lawrence@gmail.com>
+		 * @param string start (start address)
+		 * @param integer endLat
+		 * @param integer endLng
+		 */
+		computeDirections : function(start, endlat, endlng) {
+			var request = {
+				origin: start, 
+				destination: new google.maps.LatLng(endlat, endlng),
+				travelMode: google.maps.DirectionsTravelMode.DRIVING
+			};
+			$.bgmp.directionsService.route(request, function(response, status) {
+				if (status == google.maps.DirectionsStatus.OK) {
+					$.bgmp.directionsDisplay.setDirections(response);
+				} else {
+					alert('Error generating directions. Please try entering another address.');
+				}
+			});
+		},
 		
 		/**
 		 * Opens an info window on the map
@@ -250,11 +289,26 @@ function bgmp_wrapper( $ )
 		 * @param object map
 		 * @param object marker
 		 * @param string infoWindowContent
+		 * @param object e (placemark that was clicked)
 		 */
-		openInfoWindow : function( map, marker, infoWindowContent )
+		openInfoWindow : function( map, marker, infoWindowContent, e )
 		{
-			$.bgmp.infoWindow.setContent( infoWindowContent );
+			var directionsWrapper = "<div id='wrapper'>" +
+				"<br /><label>Get Directions to here from:</label> " +
+				"<input type=\"text\" id=\"startAddress\" />" +
+				"<input type=\"button\" id=\"goGetDirections\" value=\"go\" />" +
+				infoWindowContent +
+				"</div>";
+			$.bgmp.infoWindow.setContent( directionsWrapper );
+
 			$.bgmp.infoWindow.open( map, marker );
+
+			google.maps.event.addDomListener($.bgmp.infoWindow, 'domready', function() {
+				$('#goGetDirections').click(function() {
+					$.bgmp.computeDirections(document.getElementById('startAddress').value, e.latLng.lat() , e.latLng.lng());
+					$.bgmp.infoWindow.close();
+				});
+			});
 
 			if( bgmpData.options.viewOnMapScroll )
 			{			
@@ -276,6 +330,7 @@ function bgmp_wrapper( $ )
 			$.bgmp.openInfoWindow( $.bgmp.map, $.bgmp.markers[ id ], $.bgmp.infoWindowContent[ id ] );
 		}
 	}; // end bgmp
+
 	
 	// Kick things off...
 	$( document ).ready( $.bgmp.init );
